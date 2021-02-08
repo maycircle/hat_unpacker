@@ -35,7 +35,12 @@ export function exportDecryptedHat(filename: string, decryptedHat: DecryptedHat)
     writeFileSync(filename, decryptedHat.imageBytes);
 }
 
-function exportHatBase(filename: string, hatBase: Buffer) {
+/**
+ * Export hat base section from decrypted hat of complex type.
+ * @param filename Absolute or relative export path.
+ * @param decryptedHat Decrypted hat base section.
+ */
+export function exportHatBase(filename: string, hatBase: Buffer) {
     writeFileSync(filename, hatBase);
 }
 
@@ -43,15 +48,11 @@ function exportHatBase(filename: string, hatBase: Buffer) {
 export class HatDecryptor {
     protected data: Buffer;
 
-    protected offset: number;
-
     /**
      * @param data Encrypted `.hat` data.
-     * @param offset Reading position offset.
      */
-    constructor(data: Buffer, offset: number = 0) {
+    constructor(data: Buffer) {
         this.data = data;
-        this.offset = offset;
     }
 
     /**
@@ -63,25 +64,16 @@ export class HatDecryptor {
         return new HatDecryptor(readFileSync(filename));
     }
 
-    /** Automatically determine necessary hat decryptor and then decrypt it. */
-    public decrypt(): DecryptedHat {
-        if (this.type() == HatType.Simple) return new SimpleHatDecryptor(this.data).decrypt();
-        else return new ComplexHatDecryptor(this.data).decrypt();
+    /** Automatically determine necessary hat decryptor. */
+    public getDecryptor(): BaseHatDecryptor {
+        if (this.type() == HatType.Simple) return new SimpleHatDecryptor(this.data);
+        else return new ComplexHatDecryptor(this.data);
     }
 
     /** Get encrypted hat type. */
     public type(): HatType {
         if (this.data.readBigInt64LE() == BigInt(630430777029345)) return HatType.Simple;
         else return HatType.Complex;
-    }
-
-    /**
-     * Get initialization vector (generally) of hat of complex type (can be applied to hat of
-     * simple type).
-     */
-    public iv(): Buffer {
-        // key length == iv length (16)
-        return this.data.slice(4, this.data.readInt32LE() + 4);
     }
 }
 
@@ -96,14 +88,27 @@ Buffer.prototype.readSizedString = function(offset?: number): string {
     return this.slice(offset + 1, offset + length + 1).toString();
 }
 
-export class SimpleHatDecryptor extends HatDecryptor {
+abstract class BaseHatDecryptor {
+    protected data: Buffer;
+
+    protected offset: number;
+
+    constructor(data: Buffer, offset: number = 0) {
+        this.data = data;
+        this.offset = offset;
+    }
+
+    abstract decrypt(): DecryptedHat;
+}
+
+export class SimpleHatDecryptor extends BaseHatDecryptor {
     /** Detach hat image section of simple type. */
     public decrypt(): DecryptedHat {
         this.offset += 8;
 
         let teamName = this.data.readSizedString(this.offset);
         this.offset += Buffer.byteLength(teamName, "utf8") + 1;
-        // Practically hat of simple type doesn't have image size encrtyped in it
+        // Practically hat of simple type doesn't have image size encrypted in it
         let imageSize = this.data.readInt32LE(this.offset);
         this.offset += 4;
 
@@ -113,7 +118,7 @@ export class SimpleHatDecryptor extends HatDecryptor {
 }
 
 /**
- * Decrypts `.hat` base section.
+ * Decrypt `.hat` base section.
  * @param cipherIn Array of bytes.
  * @param iv Initialization Vector.
  */
@@ -130,16 +135,22 @@ function hatBaseKey(decryptedBase: Buffer) {
     else return { isValid: false, baseKey: null, isSpecific: false };
 }
 
-export class ComplexHatDecryptor extends HatDecryptor {
+export class ComplexHatDecryptor extends BaseHatDecryptor {
+    /**
+     * Get initialization vector of hat of complex type.
+     * @returns Buffer with length of 16 bytes.
+     */
+    public iv(): Buffer {
+        return this.data.slice(4, this.data.readInt32LE() + 4);
+    }
+
     /**
      * Decrypt hat file base section of complex type.
      * @returns Decrypted hat file base section.
      */
     public decryptBase(): Buffer {
-        if (this.type() == HatType.Complex) {
-            let iv = this.iv();
-            return Buffer.from(hatBaseDecryptor(this.data.slice(iv.length + 4), iv));
-        }
+        let iv = this.iv();
+        return Buffer.from(hatBaseDecryptor(this.data.slice(iv.length + 4), iv));
     }
 
     /** Decrypt hat base section of complex type and represent it as DecryptedHat. */

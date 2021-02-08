@@ -5,7 +5,7 @@ import { HatDecryptor, exportDecryptedHat } from "./hatlib";
 
 function hatExport(path) {
     console.log("Decrypting \"" + basename(path) + "\" ...");
-    let hat = HatDecryptor.fromFile(path).decrypt();
+    let hat = HatDecryptor.fromFile(path).getDecryptor().decrypt();
 
     console.log("Exporting \"" + basename(path) + "\" ...");
     let unpackedPath = resolve(path, "../../unpacked/" + basename(path, ".hat") + ".png");
